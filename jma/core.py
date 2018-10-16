@@ -3,19 +3,58 @@ import urllib
 import re
 import datetime
 
+# 1時間毎の観測値のカラム数
+NUMBER_OF_COLUMNS_HOURLY_DATA_S = 17
+NUMBER_OF_COLUMNS_HOURLY_DATA_A = 8
+NUMBER_OF_COLUMNS_TEN_MINUTELY_DATA_S = 11
+NUMBER_OF_COLUMNS_TEN_MINUTELY_DATA_A = 8
+
+STATION_TYPE_S = "s"
+STATION_TYPE_A = "a"
+
+DATA_TYPE_HOURLY = "hourly"
+DATA_TYPE_TEN_MINUTELY = "ten_minutely"
+
 session = HTMLSession()
 
 
 class Latitude:
+    def __repr__(self):
+        return '<Latitude>' + ', '.join("%s: %s" % item for item in vars(self).items())
+
+    def __str__(self):
+        return self.__repr__()
+
     def __init__(self, degrees, minutes):
         self.degrees = degrees
         self.minutes = minutes
 
 
 class Longitude:
+    def __repr__(self):
+        return '<Longitude>' + ', '.join("%s: %s" % item for item in vars(self).items())
+
+    def __str__(self):
+        return self.__repr__()
+
     def __init__(self, degrees, minutes):
         self.degrees = degrees
         self.minutes = minutes
+
+
+class Prefecture:
+    def __init__(self, prec_no, name):
+        self.prec_no = prec_no
+        self.name = name
+
+    def __repr__(self):
+        return '<Station>' + ', '.join("%s: %s" % item for item in vars(self).items())
+
+    def __str__(self):
+        return self.__repr__()
+
+    def get_stations(self):
+        return Jma().get_stations(self.prec_no)
 
 
 class Station:
@@ -35,30 +74,28 @@ class Station:
         self.f_sun = f_sun
         self.f_snc = f_snc
 
+    def __repr__(self):
+        return '<Station>' + ', '.join("%s: %s" % item for item in vars(self).items())
+
     def __str__(self):
         return self.__repr__()
 
-    def __repr__(self):
-        return f'<Station> name: {self.name} prec_no: {self.prec_no} block_no: {self.block_no}'
-
     def get_hourly_data(self, year, month, day):
-        return Jma().get_hourly_data(self.prec_no, self.block_no, self.station_type, year, month, day)
+        return Jma().get_hourly_data(self.prec_no, self.block_no, year, month, day)
 
     def get_ten_minutely_data(self, year, month, day):
-        return Jma().get_ten_minutely_data(self.prec_no, self.block_no, self.station_type, year, month, day)
+        return Jma().get_ten_minutely_data(self.prec_no, self.block_no, year, month, day)
 
 
 class WeatherDataRow:
 
     def __repr__(self):
-        str = ', '.join("%s: %s" % item for item in vars(self).items())
-        return str
+        return '<WeatherDataRow>' + ', '.join("%s: %s" % item for item in vars(self).items())
 
-    def _direction(self, value):
+    def __str__(self):
+        return self.__repr__()
 
-        return mapping(value)
-
-    def _convert(self, value):
+    def _sanitize(self, value):
         '''値の処理'''
         # http://www.data.jma.go.jp/obd/stats/data/mdrr/man/remark.html
 
@@ -82,7 +119,11 @@ class WeatherDataRow:
         }
         if value == '--':
             return None
+        if value == '///':
+            return None
         if value == '':
+            return None
+        if value == '#':
             return None
         if value in direction_mapping:
             return direction_mapping[value]
@@ -95,6 +136,13 @@ class WeatherDataRow:
         except ValueError:
             return value
 
+    def _convert_weather_img(self, column):
+        if len(column.find("img")) == 1:
+            return column.find("img", first=True).attrs["alt"]
+        if len(column.find("img")) == 0:
+            return None
+        raise WeatherImageConvertError
+
     def _parse_time_value(self, dt, value):
         if ":" in value:
             dt += datetime.timedelta(hours=int(value.split(":")[0]), minutes=int(value.split(":")[1]))
@@ -105,151 +153,167 @@ class WeatherDataRow:
 
 class HourlyWeatherDataRow(WeatherDataRow):
 
-    def __init__(self, row, year, month, day):
+    def __init__(self, row, year, month, day, url):
         columns = row.find("td")
         dt = self._parse_time_value(datetime.datetime(year, month, day), columns[0].text)
 
-        if len(columns) == 17:
+        if len(columns) == NUMBER_OF_COLUMNS_HOURLY_DATA_S:
             # station_type = "s"
-            self.type = "s"
+            self.type = STATION_TYPE_S
+            # url
+            self.url = url
+
+            ### data ###
             # 時
             self.dt = dt
             # 気圧(hPa) 現地
-            self.air_pressure_spot = self._convert(columns[1].text)
+            self.air_pressure_spot = self._sanitize(columns[1].text)
             # 気圧(hPa) 海面
-            self.air_pressure_sea = self._convert(columns[2].text)
+            self.air_pressure_sea = self._sanitize(columns[2].text)
             # 降水量(mm)
-            self.precipitation = self._convert(columns[3].text)
+            self.precipitation = self._sanitize(columns[3].text)
             # 気温(度)
-            self.temperature = self._convert(columns[4].text)
+            self.temperature = self._sanitize(columns[4].text)
             # 露点温度(度)
-            self.dew_point_temperature = self._convert(columns[5].text)
+            self.dew_point_temperature = self._sanitize(columns[5].text)
             # 蒸気圧(hPa)
-            self.vapor_pressure = self._convert(columns[6].text)
+            self.vapor_pressure = self._sanitize(columns[6].text)
             # 湿度(%)
-            self.humidity = self._convert(columns[7].text)
+            self.humidity = self._sanitize(columns[7].text)
             # 風速
-            self.wind_speed = self._convert(columns[8].text)
+            self.wind_speed = self._sanitize(columns[8].text)
             # 風向
-            self.wind_direction = self._convert(columns[9].text)
+            self.wind_direction = self._sanitize(columns[9].text)
             # 日照時間(h)
-            self.daylight_hours = self._convert(columns[10].text)
+            self.daylight_hours = self._sanitize(columns[10].text)
             # 全天日射量(MJ/m2)
-            self.solar_irradiance = self._convert(columns[11].text)
+            self.solar_irradiance = self._sanitize(columns[11].text)
             # 雪(降雪)
-            self.snowfall = self._convert(columns[12].text)
+            self.snowfall = self._sanitize(columns[12].text)
             # 雪(積雪)
-            self.snow_cover = self._convert(columns[13].text)
+            self.snow_cover = self._sanitize(columns[13].text)
             # 天気
-            # self.weather = self._convert(columns[14].text)
+            self.weather = self._convert_weather_img(columns[14])
             # 雲量
-            # self.cloud_cover = self._convert(columns[15].text)
+            self.cloud_cover = self._sanitize(columns[15].text)
             # 視程(km)
-            # self.visibility = self._convert(columns[16].text)
-        elif len(columns) == 8:
+            self.visibility = self._sanitize(columns[16].text)
+        elif len(columns) == NUMBER_OF_COLUMNS_HOURLY_DATA_A:
             # station_type = "a"
-            self.type = "a"
+            self.type = STATION_TYPE_A
+            # url
+            self.url = url
+
+            ### data ###
             # 時
             self.dt = dt
             # 降水量(mm)
-            self.precipitation = self._convert(columns[1].text)
+            self.precipitation = self._sanitize(columns[1].text)
             # 気温(度)
-            self.temperature = self._convert(columns[2].text)
+            self.temperature = self._sanitize(columns[2].text)
             # 風速
-            self.wind_speed = self._convert(columns[3].text)
+            self.wind_speed = self._sanitize(columns[3].text)
             # 風向
-            self.wind_direction = self._convert(columns[4].text)
+            self.wind_direction = self._sanitize(columns[4].text)
             # 日照時間(h)
-            self.daylight_hours = self._convert(columns[5].text)
+            self.daylight_hours = self._sanitize(columns[5].text)
             # 雪(降雪)
-            self.snowfall = self._convert(columns[6].text)
+            self.snowfall = self._sanitize(columns[6].text)
             # 雪(積雪)
-            self.snow_cover = self._convert(columns[7].text)
+            self.snow_cover = self._sanitize(columns[7].text)
 
 
 class TenMinutelyWeatherDataRow(WeatherDataRow):
 
-    def __init__(self, row, year, month, day):
+    def __init__(self, row, year, month, day, url):
         columns = row.find("td")
         dt = self._parse_time_value(datetime.datetime(year, month, day), columns[0].text)
 
-        if len(columns) == 11:
+        if len(columns) == NUMBER_OF_COLUMNS_TEN_MINUTELY_DATA_S:
             # station_type = "s""
-            self.type = "s"
+            self.type = STATION_TYPE_S
+            # url
+            self.url = url
+
+            ### data ###
             # 時分
             self.dt = dt
             # 気圧(hPa) 現地
-            self.air_pressure_spot = self._convert(columns[1].text)
+            self.air_pressure_spot = self._sanitize(columns[1].text)
             # 気圧(hPa) 海面
-            self.air_pressure_sea = self._convert(columns[2].text)
+            self.air_pressure_sea = self._sanitize(columns[2].text)
             # 降水量(mm)
-            self.precipitation = self._convert(columns[3].text)
+            self.precipitation = self._sanitize(columns[3].text)
             # 気温(度)
-            self.temperature = self._convert(columns[4].text)
+            self.temperature = self._sanitize(columns[4].text)
             # 相対湿度(%)
-            self.relative_humidity = self._convert(columns[5].text)
+            self.relative_humidity = self._sanitize(columns[5].text)
             # 平均風速(m/s)
-            self.mean_wind_speed = self._convert(columns[6].text)
+            self.mean_wind_speed = self._sanitize(columns[6].text)
             # 平均風速（風向）
-            self.wind_direction = self._convert(columns[7].text)
+            self.wind_direction = self._sanitize(columns[7].text)
             # 最大瞬間(m/s)
-            self.max_wind_speed = self._convert(columns[8].text)
+            self.max_wind_speed = self._sanitize(columns[8].text)
             # 最大瞬間（風向）
-            self.max_wind_direction = self._convert(columns[9].text)
+            self.max_wind_direction = self._sanitize(columns[9].text)
             # 日照時間（分）
-            self.daylight_minute = self._convert(columns[10].text)
-        elif len(columns) == 8:
+            self.daylight_minute = self._sanitize(columns[10].text)
+        elif len(columns) == NUMBER_OF_COLUMNS_TEN_MINUTELY_DATA_A:
             # station_type = "a"
-            self.type = "a"
+            self.type = STATION_TYPE_A
+            # url
+            self.url = url
+
+            ### data ###
             # 時分
             self.dt = dt
             # 降水量(mm)
-            self.precipitation = self._convert(columns[1].text)
+            self.precipitation = self._sanitize(columns[1].text)
             # 気温(度)
-            self.temperature = self._convert(columns[2].text)
+            self.temperature = self._sanitize(columns[2].text)
             # 平均風速(m/s)
-            self.mean_wind_speed = self._convert(columns[3].text)
+            self.mean_wind_speed = self._sanitize(columns[3].text)
             # 平均風速（風向）
-            self.wind_direction = self._convert(columns[4].text)
+            self.wind_direction = self._sanitize(columns[4].text)
             # 最大瞬間(m/s)
-            self.max_wind_speed = self._convert(columns[5].text)
+            self.max_wind_speed = self._sanitize(columns[5].text)
             # 最大瞬間（風向）
-            self.max_wind_direction = self._convert(columns[6].text)
+            self.max_wind_direction = self._sanitize(columns[6].text)
             # 日照時間（分）
-            self.daylight_minute = self._convert(columns[7].text)
+            self.daylight_minute = self._sanitize(columns[7].text)
 
 
 class Jma:
 
     def _extract_station_info(self, str):
         s = re.search(r"^javascript:viewPoint\((.+)\);$", str)
-        infos = s.group(1).replace("'", "").split(",")
-        #print(infos)
+        info = s.group(1).replace("'", "").split(",")
+        #print(info)
         # 区分
-        station_type = infos[0]
+        station_type = info[0]
         # 名前
-        name = infos[2]
+        name = info[2]
         # カナ名
-        name_kana = infos[3]
+        name_kana = info[3]
         # 緯度
-        latitude_degrees = infos[4]
-        latitude_minutes = infos[5]
+        latitude_degrees = info[4]
+        latitude_minutes = info[5]
         # 軽度
-        longitude_degrees = infos[6]
-        longitude_minutes = infos[7]
+        longitude_degrees = info[6]
+        longitude_minutes = info[7]
         # 高度
-        altitude = infos[8]
+        altitude = info[8]
         # 測定項目
         # 降水量
-        f_pre = infos[9]
+        f_pre = info[9]
         # 風向,風速
-        f_wsp = infos[10]
+        f_wsp = info[10]
         # 気温
-        f_tem = infos[11]
+        f_tem = info[11]
         # 日照時間
-        f_sun = infos[12]
+        f_sun = info[12]
         # 積雪の深さ
-        f_snc = infos[13]
+        f_snc = info[13]
 
         info = {
             "station_type": station_type,
@@ -278,8 +342,8 @@ class Jma:
         block_no = parsed_query["block_no"][0]
         return block_no
 
-    def _construct_url(self, prec_no, block_no, station_type, year, month, day, url_type=None):
-        if url_type == "get_hourly_data":
+    def _construct_url(self, prec_no, block_no, station_type, year, month, day, data_frequenry=None):
+        if data_frequenry == "hourly":
             params = {
                 "prec_no": prec_no,
                 "block_no": block_no,
@@ -289,7 +353,8 @@ class Jma:
             }
             query = urllib.parse.urlencode(params)
             url = "http://www.data.jma.go.jp/obd/stats/etrn/view/hourly_{}1.php?".format(station_type) + query
-        elif url_type == "get_ten_minutely_data":
+            return url
+        if data_frequenry == "ten_minutely":
             params = {
                 "prec_no": prec_no,
                 "block_no": block_no,
@@ -299,16 +364,20 @@ class Jma:
             }
             query = urllib.parse.urlencode(params)
             url = "http://www.data.jma.go.jp/obd/stats/etrn/view/10min_{}1.php?".format(station_type) + query
-        return url
+            return url
+        raise InvalidDataFrequency
+
+    def _validate_date(self, year, month, day):
+        datetime.datetime(year=year,month=month,day=day)
 
     def get_prefectures(self):
         url = "http://www.data.jma.go.jp/obd/stats/etrn/select/prefecture00.php"
-        list = []
         r = session.get(url)
+
         for area in r.html.find("area"):
             prec_no = self._extract_prec_no(area.attrs["href"])
-            list.append(prec_no)
-        return list
+            prec_name = area.attrs["alt"]
+            yield Prefecture(prec_no, prec_name)
 
     def get_stations(self, prec_no):
         block_no_array = []
@@ -338,36 +407,46 @@ class Jma:
             # 同じ情報が2個づつ入っているので1個にする
             if block_no not in block_no_array:
                 block_no_array.append(block_no)
-                stations[block_no] = Station(prec_no, block_no, **station_params)
-        #print(stations)
-        return stations
+                yield Station(prec_no, block_no, **station_params)
 
     def get_station(self, prec_no, block_no):
-        try:
-            stations = self.get_stations(prec_no)
-            return stations[block_no]
-        except KeyError:
-            print("Invalid block_no")
+        for station in self.get_stations(prec_no):
+            if station.block_no == block_no:
+                return station
+        raise InvalidBlockNo     
 
-    def get_hourly_data(self, prec_no, block_no, station_type, year, month, day):
-        url = self._construct_url(prec_no, block_no, station_type, year, month, day, url_type="get_hourly_data")
+    def get_hourly_data(self, prec_no, block_no, year, month, day):
+        self._validate_date(year, month, day)
+        station = self.get_station(prec_no, block_no)
+        url = self._construct_url(prec_no, block_no, station.station_type, year, month, day, data_frequenry=DATA_TYPE_HOURLY)
+        #print(url)
+        r = session.get(url)
+
+        # ヘッダを削除してテーブルを読み込む
+        if len(r.html.find("#tablefix1")) > 0:
+            rows = r.html.find("#tablefix1 > tr")[2:]
+            #print(rows)
+            for row in rows:
+                yield HourlyWeatherDataRow(row, year, month, day, url)
+        else:
+            div_main_text = r.html.find("#main",first=True).text
+            if div_main_text.count("閲覧可能な日まで戻るか、「メニューに戻る」ボタンをクリックして下さい。") > 0:
+                raise FutureDateError
+            else:
+                raise Exception
+
+
+    def get_ten_minutely_data(self, prec_no, block_no, year, month, day):
+        self._validate_date(year, month, day)
+        station = self.get_station(prec_no, block_no)
+        url = self._construct_url(prec_no, block_no, station.station_type, year, month, day, data_frequenry=DATA_TYPE_TEN_MINUTELY)
         #print(url)
         r = session.get(url)
 
         # ヘッダを削除してテーブルを読み込む
         rows = r.html.find("#tablefix1 > tr")[2:]
         for row in rows:
-            yield HourlyWeatherDataRow(row, year, month, day)
-
-    def get_ten_minutely_data(self, prec_no, block_no, station_type, year, month, day):
-        url = self._construct_url(prec_no, block_no, station_type, year, month, day, url_type="get_ten_minutely_data")
-        #print(url)
-        r = session.get(url)
-
-        # ヘッダを削除してテーブルを読み込む
-        rows = r.html.find("#tablefix1 > tr")[2:]
-        for row in rows:
-            yield TenMinutelyWeatherDataRow(row, year, month, day)
+            yield TenMinutelyWeatherDataRow(row, year, month, day, url)
 
 
 class InvalidPrecNo(Exception):
@@ -376,3 +455,15 @@ class InvalidPrecNo(Exception):
 
 class InvalidBlockNo(Exception):
     "BlockNo is invalid"
+
+
+class InvalidDataFrequency(Exception):
+    "Data frequency is invalid"
+
+
+class WeatherImageConvertError(Exception):
+    "WeatherImageConversion was failed"
+
+
+class FutureDateError(Exception):
+    "Specified date is future date"
