@@ -101,3 +101,5 @@ ENV/
 .mypy_cache/
 
 
+.autoenv_leave.zsh
+.autoenv.zsh
