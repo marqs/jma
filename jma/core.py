@@ -269,7 +269,7 @@ class Jma:
         if year == '9999' or month == '99' or day == '99':
             return None
         else:
-            return datetime.datetime(year=int(year),month=int(month),day=int(day))
+            return datetime.date(year=int(year),month=int(month),day=int(day))
 
     def _extract_station_info(self, str):
         s = re.search(r"^javascript:viewPoint\((.+)\);$", str)
