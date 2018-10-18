@@ -17,31 +17,6 @@ DATA_TYPE_TEN_MINUTELY = "ten_minutely"
 
 session = HTMLSession()
 
-
-class Latitude:
-    def __repr__(self):
-        return '<Latitude>' + ', '.join("%s: %s" % item for item in vars(self).items())
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __init__(self, degrees, minutes):
-        self.degrees = degrees
-        self.minutes = minutes
-
-
-class Longitude:
-    def __repr__(self):
-        return '<Longitude>' + ', '.join("%s: %s" % item for item in vars(self).items())
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __init__(self, degrees, minutes):
-        self.degrees = degrees
-        self.minutes = minutes
-
-
 class Prefecture:
     def __init__(self, prec_no, name):
         self.prec_no = prec_no
@@ -58,21 +33,25 @@ class Prefecture:
 
 
 class Station:
-    def __init__(self, prec_no, block_no, name, name_kana, latitude, longitude, altitude, station_type, f_pre, f_wsp, f_tem, f_sun, f_snc):
+    def __init__(self, prec_no, block_no, **kwargs):
         self.prec_no = prec_no
         self.block_no = block_no
 
-        self.name = name
-        self.name_kana = name_kana
-        self.latitude = latitude
-        self.longitude = longitude
-        self.altitude = altitude
-        self.station_type = station_type
-        self.f_pre = f_pre
-        self.f_wsp = f_wsp
-        self.f_tem = f_tem
-        self.f_sun = f_sun
-        self.f_snc = f_snc
+        #kwargs
+        self.name = kwargs['name']
+        self.name_kana = kwargs['name_kana']
+        self.latitude_degrees = kwargs['latitude_degrees']
+        self.latitude_minutes = kwargs['latitude_minutes']
+        self.longitude_degrees = kwargs['longitude_degrees']
+        self.longitude_minutes = kwargs['longitude_minutes']
+        self.altitude = kwargs['altitude']
+        self.station_type = kwargs['station_type']
+        self.f_pre = kwargs['f_pre']
+        self.f_wsp = kwargs['f_wsp']
+        self.f_tem = kwargs['f_tem']
+        self.f_sun = kwargs['f_sun']
+        self.f_snc = kwargs['f_snc']
+        self.observation_end_date = kwargs['observation_end_date']
 
     def __repr__(self):
         return '<Station>' + ', '.join("%s: %s" % item for item in vars(self).items())
@@ -115,7 +94,8 @@ class WeatherDataRow:
             '東北東': 'ENE',
             '南南東': 'SSE',
             '西南西': 'WSW',
-            '北北西': 'NNW'
+            '北北西': 'NNW',
+            '静穏': None
         }
         if value == '--':
             return None
@@ -285,6 +265,12 @@ class TenMinutelyWeatherDataRow(WeatherDataRow):
 
 class Jma:
 
+    def _observation_end_date(self, year, month, day):
+        if year == '9999' or month == '99' or day == '99':
+            return None
+        else:
+            return datetime.datetime(year=int(year),month=int(month),day=int(day))
+
     def _extract_station_info(self, str):
         s = re.search(r"^javascript:viewPoint\((.+)\);$", str)
         info = s.group(1).replace("'", "").split(",")
@@ -305,28 +291,33 @@ class Jma:
         altitude = info[8]
         # 測定項目
         # 降水量
-        f_pre = info[9]
+        f_pre = bool(int(info[9]))
         # 風向,風速
-        f_wsp = info[10]
+        f_wsp = bool(int(info[10]))
         # 気温
-        f_tem = info[11]
+        f_tem = bool(int(info[11]))
         # 日照時間
-        f_sun = info[12]
+        f_sun = bool(int(info[12]))
         # 積雪の深さ
-        f_snc = info[13]
+        f_snc = bool(int(info[13]))
+
+        observation_end_date = self._observation_end_date(year=info[14], month=info[15], day=info[16])
 
         info = {
             "station_type": station_type,
             "name": name,
             "name_kana": name_kana,
             "altitude": altitude,
-            "latitude": Latitude(latitude_degrees, latitude_minutes),
-            "longitude": Longitude(longitude_degrees, longitude_minutes),
+            "latitude_degrees": latitude_degrees,
+            "latitude_minutes": latitude_minutes,
+            "longitude_degrees": longitude_degrees,
+            "longitude_minutes": longitude_minutes,
             "f_pre": f_pre,
             "f_wsp": f_wsp,
             "f_tem": f_tem,
             "f_sun": f_sun,
-            "f_snc": f_snc
+            "f_snc": f_snc,
+            "observation_end_date": observation_end_date
         }
         return info
 
@@ -403,7 +394,6 @@ class Jma:
 
             onmouseover = area.attrs["onmouseover"]
             station_params = self._extract_station_info(onmouseover)
-
             # 同じ情報が2個づつ入っているので1個にする
             if block_no not in block_no_array:
                 block_no_array.append(block_no)
