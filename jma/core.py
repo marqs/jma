@@ -77,7 +77,6 @@ class WeatherDataRow:
     def _sanitize(self, value):
         '''値の処理'''
         # http://www.data.jma.go.jp/obd/stats/data/mdrr/man/remark.html
-
         direction_mapping = {
             '北': 'N',
             '東': 'E',
@@ -110,7 +109,12 @@ class WeatherDataRow:
         if '×' in value:
             return None
         if '.' in value:
-            return float(value)
+            if ']' in value:
+                return float(value.replace(']',''))
+            elif ')' in value:
+                return float(value.replace(']',''))
+            else:
+                return float(value)
         try:
             return int(value)
         except ValueError:
@@ -214,7 +218,6 @@ class TenMinutelyWeatherDataRow(WeatherDataRow):
             self.type = STATION_TYPE_S
             # url
             self.url = url
-
             ### data ###
             # 時分
             self.dt = dt
