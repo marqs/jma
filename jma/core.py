@@ -112,7 +112,7 @@ class WeatherDataRow:
             if ']' in value:
                 return float(value.replace(']',''))
             elif ')' in value:
-                return float(value.replace(']',''))
+                return float(value.replace(')',''))
             else:
                 return float(value)
         try:
