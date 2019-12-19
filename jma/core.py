@@ -52,6 +52,8 @@ class Station:
         self.f_sun = kwargs['f_sun']
         self.f_snc = kwargs['f_snc']
         self.observation_end_date = kwargs['observation_end_date']
+        self.latitude = float(self.latitude_degrees) + float(self.latitude_minutes) / 60
+        self.longitude = float(self.longitude_degrees) + float(self.longitude_minutes) / 60
 
     def __repr__(self):
         return '<Station>' + ', '.join("%s: %s" % item for item in vars(self).items())
